@@ -57,6 +57,8 @@ namespace Decompiler
         private bool GltfExportAdaptTextures;
         private bool GltfExportExtras;
         private bool ToolsAssetInfoShort;
+        private bool FastExportMode;
+        private int PngCompressionLevel;
 
         // The options below are for collecting stats and testing exporting, this is mostly intended for VRF developers, not end users.
         private bool CollectStats;
@@ -110,6 +112,8 @@ namespace Decompiler
         /// <param name="gltf_textures_adapt">Whether to perform any glTF spec adaptations on textures (e.g. split metallic map).</param>
         /// <param name="gltf_export_extras">Export additional Mesh properties into glTF extras</param>
         /// <param name="tools_asset_info_short">Whether to print only file paths for tools_asset_info files.</param>
+        /// <param name="fast_export">Enable fast export mode with optimized settings for better performance.</param>
+        /// <param name="png_compression">PNG compression level (0-9). Lower values = faster, higher = smaller files. Default: 1 for fast mode, 4 for normal.</param>
         /// <param name="stats">Collect stats on all input files and then print them. Use "-i steam" to scan all Steam libraries.</param>
         /// <param name="stats_print_files">When using --stats, print example file names for each stat.</param>
         /// <param name="stats_unique_deps">When using --stats, print all unique dependencies that were found.</param>
@@ -141,6 +145,8 @@ namespace Decompiler
             bool gltf_textures_adapt = false,
             bool gltf_export_extras = false,
             bool tools_asset_info_short = false,
+            bool fast_export = false,
+            int png_compression = -1,
 
             bool stats = false,
             bool stats_print_files = false,
@@ -173,6 +179,17 @@ namespace Decompiler
             GltfExportAdaptTextures = gltf_textures_adapt;
             GltfExportExtras = gltf_export_extras;
             ToolsAssetInfoShort = tools_asset_info_short;
+            FastExportMode = fast_export;
+            
+            // Set PNG compression level based on mode
+            if (png_compression >= 0)
+            {
+                PngCompressionLevel = Math.Clamp(png_compression, 0, 9);
+            }
+            else
+            {
+                PngCompressionLevel = FastExportMode ? 1 : 4; // Fast mode uses lower compression
+            }
 
             CollectStats = stats;
             StatsPrintFilePaths = stats_print_files;
@@ -717,6 +734,7 @@ namespace Decompiler
                 ResourceType.Texture => new TextureExtract(resource)
                 {
                     DecodeFlags = TextureDecodeFlags,
+                    PngCompressionLevel = PngCompressionLevel,
                 }.ToContentFile(),
                 _ => FileExtract.Extract(resource, fileLoader, ProgressReporter),
             };
@@ -1300,9 +1318,34 @@ namespace Decompiler
 
             if (dumpSubFiles)
             {
-                foreach (var contentSubFile in contentFile.SubFiles)
+                // Process subfiles in parallel for better performance
+                if (contentFile.SubFiles.Count > 1)
                 {
-                    DumpFile(Path.Combine(Path.GetDirectoryName(path)!, contentSubFile.FileName), contentSubFile.Extract.Invoke());
+                    var parallelOptions = new ParallelOptions
+                    {
+                        MaxDegreeOfParallelism = Math.Min(Environment.ProcessorCount, contentFile.SubFiles.Count)
+                    };
+
+                    Parallel.ForEach(contentFile.SubFiles, parallelOptions, contentSubFile =>
+                    {
+                        try
+                        {
+                            var subFilePath = Path.Combine(Path.GetDirectoryName(path)!, contentSubFile.FileName);
+                            DumpFile(subFilePath, contentSubFile.Extract.Invoke());
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Warning: Failed to extract subfile {contentSubFile.FileName}: {ex.Message}");
+                        }
+                    });
+                }
+                else
+                {
+                    // Single subfile, process normally
+                    foreach (var contentSubFile in contentFile.SubFiles)
+                    {
+                        DumpFile(Path.Combine(Path.GetDirectoryName(path)!, contentSubFile.FileName), contentSubFile.Extract.Invoke());
+                    }
                 }
             }
         }
