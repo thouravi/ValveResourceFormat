@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -66,6 +67,12 @@ public sealed class TextureExtract
 
     // Options
     public TextureDecoders.TextureCodec DecodeFlags { get; set; } = TextureDecoders.TextureCodec.Auto;
+    
+    /// <summary>
+    /// PNG compression level (0-9). Lower values = faster encoding, higher values = smaller files.
+    /// Default is 1 for faster exports. Set to 4 for better compression.
+    /// </summary>
+    public int PngCompressionLevel { get; set; } = 1;
 
     /// <summary>
     /// Should the vtex file be ignored. Defaults to true for files flagged as child resources.
@@ -96,10 +103,10 @@ public sealed class TextureExtract
             return new ContentFile() { Data = rawImage };
         }
 
-        Func<SKBitmap, byte[]> ImageEncode = ExportExr ? ToExrImage : ToPngImage;
+        Func<SKBitmap, byte[]> ImageEncode = ExportExr ? ToExrImage : (bitmap => ToPngImage(bitmap, PngCompressionLevel));
 
         //
-        // Multiple images path
+        // Multiple images path - with parallel processing for better performance
         //
         if (isArray || isCubeMap)
         {
@@ -107,6 +114,9 @@ public sealed class TextureExtract
             {
                 FileName = fileName,
             };
+
+            // Pre-generate all bitmap tasks for parallel execution
+            var bitmapTasks = new List<(string fileName, Func<byte[]> generator)>();
 
             for (uint depth = 0; depth < texture.Depth; depth++)
             {
@@ -120,11 +130,13 @@ public sealed class TextureExtract
                 if (!isCubeMap)
                 {
                     var currentDepth = depth;
-
-                    contentFile.AddSubFile(outTextureName + ImageOutputExtension, () =>
+                    var fileName = outTextureName + ImageOutputExtension;
+                    
+                    bitmapTasks.Add((fileName, () =>
                     {
-                        return ImageEncode(texture.GenerateBitmap(depth: currentDepth, decodeFlags: DecodeFlags));
-                    });
+                        using var bitmap = texture.GenerateBitmap(depth: currentDepth, decodeFlags: DecodeFlags);
+                        return ImageEncode(bitmap);
+                    }));
 
                     continue;
                 }
@@ -133,12 +145,53 @@ public sealed class TextureExtract
                 {
                     var currentDepth = depth;
                     var currentFace = face;
+                    var fileName = $"{outTextureName}_{CubemapNames[face]}{ImageOutputExtension}";
 
-                    contentFile.AddSubFile($"{outTextureName}_{CubemapNames[face]}{ImageOutputExtension}", () =>
+                    bitmapTasks.Add((fileName, () =>
                     {
                         using var bitmap = texture.GenerateBitmap(depth: currentDepth, face: (Texture.CubemapFace)currentFace, decodeFlags: DecodeFlags);
                         return ImageEncode(bitmap);
-                    });
+                    }));
+                }
+            }
+
+            // Process bitmaps in parallel if we have multiple images
+            if (bitmapTasks.Count > 1)
+            {
+                var parallelOptions = new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = Math.Min(Environment.ProcessorCount, bitmapTasks.Count)
+                };
+
+                // Pre-compute all bitmaps in parallel and cache results
+                var results = new ConcurrentDictionary<string, byte[]>();
+                
+                Parallel.ForEach(bitmapTasks, parallelOptions, task =>
+                {
+                    try
+                    {
+                        results[task.fileName] = task.generator();
+                    }
+                    catch (Exception ex)
+                    {
+                        // Log error but continue with other textures
+                        Console.WriteLine($"Warning: Failed to process texture {task.fileName}: {ex.Message}");
+                    }
+                });
+
+                // Add cached results as subfiles
+                foreach (var result in results)
+                {
+                    var cachedData = result.Value;
+                    contentFile.AddSubFile(result.Key, () => cachedData);
+                }
+            }
+            else
+            {
+                // Single image, process normally
+                foreach (var task in bitmapTasks)
+                {
+                    contentFile.AddSubFile(task.fileName, task.generator);
                 }
             }
 
@@ -160,7 +213,7 @@ public sealed class TextureExtract
 
             foreach (var (spriteRect, spriteFileName) in sprites)
             {
-                vtex.AddImageSubFile(Path.GetFileName(spriteFileName), (bitmap) => SubsetToPngImage(bitmap, spriteRect));
+                vtex.AddImageSubFile(Path.GetFileName(spriteFileName), (bitmap) => SubsetToPngImage(bitmap, spriteRect, PngCompressionLevel));
             }
 
             return vtex;
@@ -217,17 +270,17 @@ public sealed class TextureExtract
     private string GetMksFileName()
         => Path.ChangeExtension(fileName, "mks");
 
-    public static byte[] ToPngImage(SKBitmap bitmap)
+    public static byte[] ToPngImage(SKBitmap bitmap, int compressionLevel = 1)
     {
-        return EncodePng(bitmap);
+        return EncodePng(bitmap, compressionLevel);
     }
 
-    public static byte[] SubsetToPngImage(SKBitmap bitmap, SKRectI spriteRect)
+    public static byte[] SubsetToPngImage(SKBitmap bitmap, SKRectI spriteRect, int compressionLevel = 1)
     {
         using var subset = new SKBitmap();
         bitmap.ExtractSubset(subset, spriteRect);
 
-        return EncodePng(subset);
+        return EncodePng(subset, compressionLevel);
     }
 
     public static byte[] ToPngImageChannels(SKBitmap bitmap, ChannelMapping channel)
@@ -440,9 +493,9 @@ public sealed class TextureExtract
         return EncodePng(pixels);
     }
 
-    private static byte[] EncodePng(SKPixmap pixels)
+    private static byte[] EncodePng(SKPixmap pixels, int compressionLevel = 1)
     {
-        var options = new SKPngEncoderOptions(SKPngEncoderFilterFlags.AllFilters, zLibLevel: 4);
+        var options = new SKPngEncoderOptions(SKPngEncoderFilterFlags.AllFilters, zLibLevel: compressionLevel);
 
         using var png = pixels.Encode(options);
         return png.ToArray();

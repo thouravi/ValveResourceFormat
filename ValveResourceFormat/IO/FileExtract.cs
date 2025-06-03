@@ -236,6 +236,58 @@ namespace ValveResourceFormat.IO
         }
 
         /// <summary>
+        /// Extract multiple resources of the same type in batch for better performance.
+        /// This is particularly useful for texture arrays and similar resources.
+        /// </summary>
+        public static IEnumerable<ContentFile> ExtractBatch(IEnumerable<Resource> resources, IFileLoader fileLoader, IProgress<string> progress = null)
+        {
+            var resourceGroups = resources.GroupBy(r => r.ResourceType);
+            
+            foreach (var group in resourceGroups)
+            {
+                var resourceType = group.Key;
+                var resourceList = group.ToList();
+
+                // For texture resources, we can optimize by processing them in parallel
+                if (resourceType == ResourceType.Texture && resourceList.Count > 1)
+                {
+                    var parallelOptions = new ParallelOptions
+                    {
+                        MaxDegreeOfParallelism = Math.Min(Environment.ProcessorCount, resourceList.Count)
+                    };
+
+                    var results = new System.Collections.Concurrent.ConcurrentBag<ContentFile>();
+                    
+                    Parallel.ForEach(resourceList, parallelOptions, resource =>
+                    {
+                        try
+                        {
+                            var contentFile = new TextureExtract(resource).ToContentFile();
+                            results.Add(contentFile);
+                        }
+                        catch (Exception ex)
+                        {
+                            progress?.Report($"Warning: Failed to extract {resource.FileName}: {ex.Message}");
+                        }
+                    });
+
+                    foreach (var result in results)
+                    {
+                        yield return result;
+                    }
+                }
+                else
+                {
+                    // Process other resource types normally
+                    foreach (var resource in resourceList)
+                    {
+                        yield return Extract(resource, fileLoader, progress);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
         /// Extract content file from a non-resource stream.
         /// </summary>
         /// <param name="stream">Stream to be extracted or decompiled.</param>
