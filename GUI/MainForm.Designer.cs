@@ -42,6 +42,7 @@ namespace GUI
             menuStrip = new MenuStrip();
             fileToolStripMenuItem = new ToolStripMenuItem();
             openToolStripMenuItem = new ToolStripMenuItem();
+            reopenClosedTabMenuItem = new ToolStripMenuItem();
             toolStripSeparator2 = new ToolStripSeparator();
             registerVpkFileAssociationToolStripMenuItem = new ToolStripMenuItem();
             createVpkFromFolderToolStripMenuItem = new ToolStripMenuItem();
@@ -61,6 +62,7 @@ namespace GUI
             closeToolStripMenuItems = new ToolStripMenuItem();
             closeToolStripMenuItemsToRight = new ToolStripMenuItem();
             closeToolStripMenuItemsToLeft = new ToolStripMenuItem();
+            reopenClosedTabTabContextMenuItem = new ToolStripMenuItem();
             exportAsIsToolStripMenuItem = new ToolStripMenuItem();
             decompileExportToolStripMenuItem = new ToolStripMenuItem();
             clearConsoleToolStripMenuItem = new ToolStripMenuItem();
@@ -102,7 +104,7 @@ namespace GUI
             //
             // fileToolStripMenuItem
             //
-            fileToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { openToolStripMenuItem, toolStripSeparator2, registerVpkFileAssociationToolStripMenuItem, createVpkFromFolderToolStripMenuItem, toolStripSeparator4, openWelcomeScreenToolStripMenuItem });
+            fileToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { openToolStripMenuItem, reopenClosedTabMenuItem, toolStripSeparator2, registerVpkFileAssociationToolStripMenuItem, createVpkFromFolderToolStripMenuItem, toolStripSeparator4, openWelcomeScreenToolStripMenuItem });
             fileToolStripMenuItem.Image = (System.Drawing.Image)resources.GetObject("fileToolStripMenuItem.Image");
             fileToolStripMenuItem.ImageScaling = ToolStripItemImageScaling.None;
             fileToolStripMenuItem.Name = "fileToolStripMenuItem";
@@ -115,14 +117,22 @@ namespace GUI
             openToolStripMenuItem.ImageScaling = ToolStripItemImageScaling.None;
             openToolStripMenuItem.Name = "openToolStripMenuItem";
             openToolStripMenuItem.ShortcutKeys = Keys.Control | Keys.O;
-            openToolStripMenuItem.Size = new System.Drawing.Size(203, 22);
+            openToolStripMenuItem.Size = new System.Drawing.Size(233, 22);
             openToolStripMenuItem.Text = "&Open";
             openToolStripMenuItem.Click += OpenToolStripMenuItem_Click;
+            //
+            // reopenClosedTabMenuItem
+            //
+            reopenClosedTabMenuItem.Name = "reopenClosedTabMenuItem";
+            reopenClosedTabMenuItem.ShortcutKeys = Keys.Control | Keys.Shift | Keys.T;
+            reopenClosedTabMenuItem.Size = new System.Drawing.Size(233, 22);
+            reopenClosedTabMenuItem.Text = "Reopen closed tab";
+            reopenClosedTabMenuItem.Click += OnReopenClosedTabMenuItem_Click;
             //
             // toolStripSeparator2
             //
             toolStripSeparator2.Name = "toolStripSeparator2";
-            toolStripSeparator2.Size = new System.Drawing.Size(200, 6);
+            toolStripSeparator2.Size = new System.Drawing.Size(230, 6);
             //
             // registerVpkFileAssociationToolStripMenuItem
             //
@@ -246,7 +256,7 @@ namespace GUI
             // tabContextMenuStrip
             //
             tabContextMenuStrip.ImageScalingSize = new System.Drawing.Size(24, 24);
-            tabContextMenuStrip.Items.AddRange(new ToolStripItem[] { closeToolStripMenuItem, closeToolStripMenuItems, closeToolStripMenuItemsToRight, closeToolStripMenuItemsToLeft, exportAsIsToolStripMenuItem, decompileExportToolStripMenuItem, clearConsoleToolStripMenuItem });
+            tabContextMenuStrip.Items.AddRange(new ToolStripItem[] { closeToolStripMenuItem, closeToolStripMenuItems, closeToolStripMenuItemsToRight, closeToolStripMenuItemsToLeft, reopenClosedTabTabContextMenuItem, exportAsIsToolStripMenuItem, decompileExportToolStripMenuItem, clearConsoleToolStripMenuItem });
             tabContextMenuStrip.LayoutStyle = ToolStripLayoutStyle.Table;
             tabContextMenuStrip.Name = "contextMenuStrip1";
             tabContextMenuStrip.Size = new System.Drawing.Size(234, 214);
@@ -285,6 +295,14 @@ namespace GUI
             closeToolStripMenuItemsToLeft.Size = new System.Drawing.Size(233, 30);
             closeToolStripMenuItemsToLeft.Text = "Close all tabs to &left";
             closeToolStripMenuItemsToLeft.Click += CloseToolStripMenuItemsToLeft_Click;
+            //
+            // reopenClosedTabTabContextMenuItem
+            //
+            reopenClosedTabTabContextMenuItem.Name = "reopenClosedTabTabContextMenuItem";
+            reopenClosedTabTabContextMenuItem.ShortcutKeys = Keys.Control | Keys.Shift | Keys.T;
+            reopenClosedTabTabContextMenuItem.Size = new System.Drawing.Size(233, 22);
+            reopenClosedTabTabContextMenuItem.Text = "Reopen closed tab";
+            reopenClosedTabTabContextMenuItem.Click += OnReopenClosedTabMenuItem_Click;
             //
             // exportAsIsToolStripMenuItem
             //
@@ -519,6 +537,8 @@ namespace GUI
         private ToolStripSeparator toolStripSeparator4;
         private ToolStripMenuItem openWelcomeScreenToolStripMenuItem;
         private ThemedTabControl mainTabs;
+        private ToolStripMenuItem reopenClosedTabMenuItem;
+        private ToolStripMenuItem reopenClosedTabTabContextMenuItem;
     }
 }
 

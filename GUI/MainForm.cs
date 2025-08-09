@@ -18,6 +18,7 @@ using GUI.Utils;
 using OpenTK.Windowing.Desktop;
 using SteamDatabase.ValvePak;
 using ValveResourceFormat.IO;
+using System.Collections.Generic;
 
 using ResourceViewMode = GUI.Types.Viewers.ResourceViewMode;
 
@@ -33,6 +34,14 @@ namespace GUI
         public static Dictionary<string, int> ImageListLookup { get; }
 
         private SearchForm searchForm;
+
+        private sealed class ClosedTabInfo
+        {
+            public string FileIdentifier { get; init; }
+            public string OuterVpkPath { get; init; }
+        }
+
+        private readonly Stack<ClosedTabInfo> recentlyClosedTabs = new();
 
         static MainForm()
         {
@@ -322,23 +331,33 @@ namespace GUI
             if (keyData == (Keys.Control | Keys.W) && mainTabs.SelectedTab != null)
             {
                 CloseTab(mainTabs.SelectedTab);
+                return true;
             }
 
             //if the user presses CTRL + Q, close all open tabs
             if (keyData == (Keys.Control | Keys.Q))
             {
                 CloseAllTabs();
+                return true;
             }
 
             //if the user presses CTRL + E, close all tabs to the right of the active tab
             if (keyData == (Keys.Control | Keys.E))
             {
                 CloseTabsToRight(mainTabs.SelectedTab);
+                return true;
             }
 
             if (keyData == (Keys.Control | Keys.R) || keyData == Keys.F5)
             {
                 CloseAndReOpenActiveTab();
+                return true;
+            }
+
+            if (keyData == (Keys.Control | Keys.Shift | Keys.T))
+            {
+                ReopenLastClosedTab();
+                return true;
             }
 
             return base.ProcessCmdKey(ref msg, keyData);
@@ -403,6 +422,58 @@ namespace GUI
             }
         }
 
+        private void ReopenLastClosedTab()
+        {
+            while (recentlyClosedTabs.Count > 0)
+            {
+                var info = recentlyClosedTabs.Pop();
+
+                try
+                {
+                    if (!string.IsNullOrEmpty(info.OuterVpkPath))
+                    {
+                        if (!File.Exists(info.OuterVpkPath))
+                        {
+                            continue;
+                        }
+
+                        var package = new Package();
+                        package.OptimizeEntriesForBinarySearch(StringComparison.OrdinalIgnoreCase);
+                        package.Read(info.OuterVpkPath);
+
+                        var entry = package.FindEntry(info.FileIdentifier) ?? package.FindEntry(info.FileIdentifier + GameFileLoader.CompiledFileSuffix);
+                        if (entry == null)
+                        {
+                            continue;
+                        }
+
+                        var parentContext = new VrfGuiContext(info.OuterVpkPath, null)
+                        {
+                            CurrentPackage = package,
+                        };
+                        var childContext = new VrfGuiContext(info.FileIdentifier, parentContext);
+
+                        OpenFile(childContext, entry);
+                        return;
+                    }
+                    else
+                    {
+                        if (!File.Exists(info.FileIdentifier))
+                        {
+                            continue;
+                        }
+
+                        OpenFile(info.FileIdentifier);
+                        return;
+                    }
+                }
+                catch
+                {
+                    // Try next entry if this one fails
+                }
+            }
+        }
+
         private void CloseTab(TabPage tab)
         {
             var tabIndex = GetTabIndex(tab);
@@ -416,6 +487,41 @@ namespace GUI
 
             //Close the requested tab
             Log.Info(nameof(MainForm), $"Closing {tab.Text}");
+
+            // Record closed tab for reopening later
+            if (tab.Tag is ExportData closedExportData)
+            {
+                string outerVpkPath = null;
+                if (closedExportData.PackageEntry != null)
+                {
+                    var parent = closedExportData.VrfGuiContext.ParentGuiContext;
+                    while (parent?.ParentGuiContext != null)
+                    {
+                        parent = parent.ParentGuiContext;
+                    }
+                    outerVpkPath = parent?.FileName;
+                }
+
+                var fileIdentifier = closedExportData.PackageEntry?.GetFullPath() ?? closedExportData.VrfGuiContext.FileName;
+
+                recentlyClosedTabs.Push(new ClosedTabInfo
+                {
+                    FileIdentifier = fileIdentifier,
+                    OuterVpkPath = outerVpkPath,
+                });
+
+                // Limit stack size
+                if (recentlyClosedTabs.Count > 50)
+                {
+                    // Trim by recreating a new stack with top 50 (not performance critical)
+                    var temp = new Stack<ClosedTabInfo>(recentlyClosedTabs.Take(50).Reverse());
+                    recentlyClosedTabs.Clear();
+                    foreach (var item in temp)
+                    {
+                        recentlyClosedTabs.Push(item);
+                    }
+                }
+            }
 
             if (isClosingCurrentTab && tabIndex > 0)
             {
@@ -507,6 +613,11 @@ namespace GUI
         {
             using var form = new SettingsForm();
             form.ShowDialog(this);
+        }
+
+        private void OnReopenClosedTabMenuItem_Click(object sender, EventArgs e)
+        {
+            ReopenLastClosedTab();
         }
 
         private void OpenToolStripMenuItem_Click(object sender, EventArgs e)
